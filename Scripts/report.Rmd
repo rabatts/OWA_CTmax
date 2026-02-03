@@ -1,0 +1,597 @@
+---
+title: "OWA CTmax lineages"
+author: "Rowan Batts"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+          code_folding: hide
+          code_download: true
+          toc: true
+          toc_float: true 
+  github_document:
+          html_preview: false
+          toc: true
+          toc_depth: 3
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+options(dplyr.summarise.inform = FALSE)
+
+lineage_cols = c("AM" = "#0C7BDF",
+                 "OA" = "#009D77", 
+                 "OW" = "#FFA602", 
+                 "OWA" = "#D55D07")
+
+#this changes lab codes of HH,HA,AH,AA to OW, OWA, OA, AM for easy of understanding for the audience and parses the experimental conditions e.g. OW-AM-4 into its components 
+full_data <-  full_data %>%  
+    mutate(lineage= str_replace_all(lineage,"HH", "OWA"),
+        lineage= str_replace_all(lineage, "HA", "OW"),
+        lineage= str_replace_all(lineage, "AH", "OA"),
+        lineage= str_replace_all(lineage, "AA", "AM")) %>%
+  mutate(treatment = str_split_i(lineage, pattern = "-", i = 1),
+         ancestral = ifelse(grepl("-",lineage),
+                            str_split_i(lineage, pattern = "-", i = 2),lineage),
+         replicate_ID = paste(ancestral,replicate, sep="-")) 
+
+```
+
+
+# Ramping Rate
+
+
+```{r ramp-rates, fig.height=4, fig.width=5, warning=FALSE, message=FALSE}
+ramp_record2 = ramp_record %>%
+  group_by(run, minute_interval) %>%
+  summarise(mean_ramp = mean(ramp_per_minute)) %>%
+  drop_na(minute_interval, mean_ramp)
+ggplot(ramp_record2, aes(x = minute_interval, y = mean_ramp)) +
+  #geom_hline(yintercept = 0.3) +
+  #geom_hline(yintercept = 0.1) +
+  geom_hex(bins = 30) +
+  ylim(0,0.34) +
+  labs(y = "Ramp Rate (°C/minute)",
+       x = "Time into assay (minutes)") +
+ theme_bw()+
+  guides(fill=guide_legend(title="Occurrences"))+
+  theme(axis.text = element_text(size = 16),
+        axis.title = element_text(size = 16),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16))
+
+
+ggsave("C:/Users/rowan/Documents/Research/Final_code_versons/OWA_CTmax_clean/Outputs/ramping_rate.png", width = 8, height = 5)
+```
+
+# Identifying outliers 
+
+Individuals with a z-score of less than -3 or greater than +3 are excluded from all analysis. Outliers are displayed below. 
+
+```{r, outliers}
+outliers <- full_data %>% 
+  group_by(data_set, lineage) %>% 
+  mutate(
+    ctmax_mean = mean(ctmax, na.rm = TRUE),
+    ctmax_sd = sd(ctmax, na.rm = TRUE),
+    ctmax_z = (ctmax - ctmax_mean) / ctmax_sd) %>%
+  filter(ctmax_z^2>9) %>% 
+  dplyr::select(data_set, lineage, treatment, ctmax_z)
+
+kable(outliers)
+```
+
+
+```{r, outliers_exclusion}
+full_data <- full_data %>% 
+  group_by(data_set, lineage) %>% 
+  mutate(
+    ctmax_mean = mean(ctmax, na.rm = TRUE),
+    ctmax_sd = sd(ctmax, na.rm = TRUE),
+    ctmax_z = (ctmax - ctmax_mean) / ctmax_sd) %>%
+  filter(ctmax_z^2<9) %>% 
+  dplyr::select(-ctmax_mean, -ctmax_sd)
+  
+```
+
+
+```{r divide-by-data-set}
+
+am_ow <- full_data %>% 
+  filter(data_set == "AM-OW")
+
+lineages <- full_data %>% 
+  filter(data_set == "4_lineages") %>%
+  mutate(ancestral = treatment) %>%  
+  mutate(temp = str_split_i(lineage, pattern = "", i = 1),
+         co2 = str_split_i(lineage, pattern = "", i = 2),
+         temp = if_else(lineage == "OW" | lineage == "OWA", "High", "Ambient"),
+         co2 = if_else(lineage == "OW=A" | lineage == "OWA", "High", "Ambient"))
+
+am_oa <- full_data %>% 
+  filter(data_set == "AM-OA")
+
+ow_owa <- full_data %>% 
+  filter(data_set == "OW-OWA")
+
+
+use_am_oa <- am_oa  
+use_am_ow <- am_ow 
+use_ow_owa <- ow_owa
+
+
+```
+
+# CTmax under evolutionary conditions
+
+Here only data that did not undergo a transplant is included. 
+
+### Sample Size
+```{r sample-sizes}
+lineages %>% 
+  count(lineage) %>% 
+  knitr::kable()
+```
+
+
+### Length
+```{r lineage-lengths, fig.height=5, fig.width=5}
+ggplot(lineages, aes(x = lineage, y = length, fill = lineage)) + 
+  geom_boxplot(outlier.colour = NA) + 
+  geom_point(size = 2, position = position_jitter(width = 0.1, height = 0)) + 
+  scale_fill_manual(values = lineage_cols) + 
+  labs(x = "Lineage", 
+       y = "Length (mm)") +
+  #theme(legend.position = "none")+
+  theme_bw()+
+  guides(fill=guide_legend(title="Lineage"))+
+  theme(axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16))
+
+ggsave("C:/Users/rowan/Documents/Research/Final_code_versons/OWA_CTmax_clean/Outputs/fig_S2.png", width = 8, height = 5)
+```
+The smallest individual (length ~ 0.6mm) is excluded from analyses due to the likelihood it was not a mature individual.
+
+
+```{r, remove-c5}
+lineages <- lineages %>% 
+   filter(length > 0.65)
+```
+
+```{r, lengths}
+leveneTest(length~lineage, lineages)
+
+kruskal.test(length ~ lineage, lineages)
+
+lineages_means <- lineages %>% 
+  group_by(lineage) %>% 
+  mutate(mean=mean(length),median=median(length)) %>% 
+  dplyr::select(lineage,mean,median) %>% 
+  unique()
+```
+
+### CTmax
+
+```{r lineage-ctmax, fig.height=5, fig.width=5}
+ggplot(lineages, aes(x = lineage, y = ctmax, fill = lineage)) + 
+  geom_boxplot(outlier.colour = NA) + 
+  geom_point(position = position_jitter(width = 0.1, height = 0)) + 
+  scale_fill_manual(values = lineage_cols) + 
+  labs(x = "Lineage", 
+       y = "CTmax (degrees C)") + 
+  theme_bw()+
+  theme(legend.position = "none")
+```
+
+```{r, lineages-stats}
+lineages$temp <- as.factor(lineages$temp)
+lineages$co2 <- as.factor(lineages$co2) 
+
+ctmax.model.lineages = lme4::lmer(ctmax ~ temp * co2 + length + (1|replicate_ID), 
+                      data = lineages)
+summary(ctmax.model.lineages)
+kable(car::Anova(ctmax.model.lineages, type="III",test.statistic="F"))
+
+shapiro.test(residuals(ctmax.model.lineages))
+leveneTest(ctmax ~ temp * co2, lineages)
+```
+
+
+# OA-AM Transplants 
+
+### Sample Size 
+
+
+There were an average of 12.5 individuals per treatment. 
+```{r, am_oa_assigment}
+use_am_oa %>% 
+  count(lineage) %>% 
+  knitr::kable()
+```
+
+Individuals from every replicate except AM-AM-4 and OA-OA-1 were represented. 
+```{r, am_oa_reps}
+table(use_am_oa$lineage, use_am_oa$replicate)
+```
+
+
+### Statistical Analysis 
+
+Using the nlme package with experimental treatment (e.g. AM-OA or OA-OA) as a fixed effect and source population (e.g. AM-1 or OA-2) as a random effect we find no significant difference between experimental treatments. Updated analysis (shown below) excluded 1 anomamously low CTmax value (~29 in OA-OA) which causes treatment to have a marginally significant effect. 
+```{r}
+ctmax.model_am_oa = nlme::lme(fixed = ctmax ~ treatment*ancestral, 
+                        random = ~1|replicate_ID, 
+                        data = use_am_oa)
+kable(car::Anova(ctmax.model_am_oa, type = "III", test= "F"))
+
+shapiro.test(residuals(ctmax.model_am_oa))
+leveneTest(ctmax ~ treatment*ancestral, use_am_oa)
+```
+
+```{r}
+em_am_oa <- emmeans(ctmax.model_am_oa, pairwise~treatment*ancestral)
+
+kable(emmeans(ctmax.model_am_oa, pairwise~treatment*ancestral)$contrasts)
+
+emmeans(ctmax.model_am_oa, pairwise~treatment+ancestral)
+```
+
+
+### Visual Analysis
+
+```{r, am_oa_boxplot, fig.height=6, fig.width=10}
+
+ggplot(use_am_oa, aes(x=treatment, y = ctmax, fill = ancestral))+
+  geom_boxplot(outlier.colour = NA,  position = position_dodge(width = 0.8)) + 
+  geom_point(position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.8)) + 
+  labs(x = "Developmental Environment", y = "CTmax (degrees C)")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=20), legend.position = "bottom")+
+  scale_fill_manual(values = lineage_cols)+ 
+  guides(fill=guide_legend(title="Source Environment"))
+  
+```
+
+```{r, am_oa_graphing}
+
+am_oa_CL <- as.data.frame(em_am_oa[1])
+colnames(am_oa_CL) <- c("treatment", "ancestral",  "CTmax", "SE", "df", "lcl","ucl")
+
+rxn_norms_OA <- ggplot(am_oa_CL, aes(x=treatment, y=CTmax, color=ancestral))+
+  geom_point( )+
+  stat_summary(aes(group = ancestral), fun = mean, geom = "path")+
+  geom_errorbar(aes(ymin=CTmax-SE, ymax=CTmax+SE), width=.1) +
+  theme_bw()+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=20), legend.position = "bottom")+
+  scale_color_manual(values = lineage_cols)+
+  labs(y= "CTmax (degrees C))", x = "Developmental conditions")+ 
+  guides(color=guide_legend(title="Source Environment"))
+  
+rxn_norms_OA
+
+```
+
+# OW-AM Transplants
+
+### Sample size
+
+There were approxiametly 20 individuals per treatment. 
+
+```{r}
+use_am_ow %>% 
+  count(lineage) %>% 
+  knitr::kable()
+use_am_ow$replicate_ID= as.factor(use_am_ow$replicate_ID)
+use_am_ow$treatment= as.factor(use_am_ow$treatment)
+use_am_ow$ancestral= as.factor(use_am_ow$ancestral)
+```
+
+Every replicate/lineage was represented. 
+```{r}
+table(use_am_ow$lineage, use_am_ow$replicate)
+```
+
+### Statistical Analysis 
+
+The ambient adapted population when raised at 22C has a statistically higher CTmax that both the warming adapted and ambient adapted populations when raised at 18C. 
+
+```{r, include=FALSE}
+
+ctmax.model_am_ow =lmer( ctmax ~ ancestral*treatment+(1|replicate_ID), 
+                        data = use_am_ow)
+
+kable(car::Anova(ctmax.model_am_oa, type = "III", test= "F"))
+
+```
+
+```{r}
+em_am_ow <- emmeans(ctmax.model_am_ow, pairwise~treatment*ancestral)
+letter_display_am_ow <- multcomp::cld(em_am_ow, Letters = c(LETTERS))
+
+kable(emmeans(ctmax.model_am_ow, pairwise~treatment*ancestral)$contrasts)
+```
+
+
+### Visual Analysis
+
+```{r, fig.height=6, fig.width=10}
+ggplot(use_am_ow, aes(x=treatment, y = ctmax, fill = ancestral))+
+  geom_boxplot(outlier.colour = NA,  position = position_dodge(width = 0.8)) + 
+  geom_point(position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.8)) + 
+  labs(x = "Developmental Environment", y = "CTmax (degrees C)")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=20), legend.position = "bottom")+
+  scale_fill_manual(values = lineage_cols)+ 
+  guides(fill=guide_legend(title="Source Environment"))
+
+```
+
+
+
+```{r}
+
+
+am_ow_CL <- as.data.frame(em_am_ow[1])
+colnames(am_ow_CL) <- c("treatment", "ancestral",  "CTmax", "SE", "df", "lcl","ucl")
+
+rxn_norms_OW <- ggplot(am_ow_CL, aes(x=treatment, y=CTmax, color=ancestral))+
+  geom_point( )+
+  stat_summary(aes(group = ancestral), fun.y = mean, geom = "path")+
+  geom_errorbar(aes(ymin=CTmax-1.95*SE, ymax=CTmax+1.95*SE), width=.1) +
+  theme_bw()+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=20), legend.position = "bottom")+
+  scale_color_manual(values = lineage_cols)+
+  labs(y= "CTmax (degrees C))", x = "Developmental conditions")+ 
+  guides(color=guide_legend(title="Source Environment"))
+  
+rxn_norms_OW
+
+```
+
+
+# OWA-OW transplants 
+
+### Sample Size 
+
+
+There were approximately 20 individuals per treatment. 
+```{r}
+use_ow_owa %>% 
+  count(lineage) %>% 
+  knitr::kable()
+
+```
+
+Individuals from every replicate except AM-AM-4 and OA-OA-1 were represented. 
+```{r}
+table(use_ow_owa$lineage, use_ow_owa$replicate)
+```
+
+### Statistical Analysis 
+
+```{r}
+ctmax.model_ow_owa = nlme::lme(fixed = ctmax ~ ancestral*treatment, 
+                        random = ~1|replicate_ID, 
+                        data = use_ow_owa)
+kable(anova(ctmax.model_ow_owa))
+
+shapiro.test(residuals(ctmax.model_ow_owa))
+leveneTest(ctmax ~ ancestral*treatment, as.data.frame(use_ow_owa))
+
+```
+
+
+```{r}
+em_ow_owa <- emmeans(ctmax.model_ow_owa, pairwise~ancestral*treatment)
+letter_display_ow_owa <- multcomp::cld(em_ow_owa, Letters = c(LETTERS))
+
+kable(emmeans(ctmax.model_ow_owa, pairwise~ancestral*treatment)$contrasts)
+```
+
+
+### Visual Analysis
+
+```{r, fig.height=6, fig.width=10}
+
+ggplot(use_ow_owa, aes(x=treatment, y = ctmax, fill = ancestral))+
+  geom_boxplot(outlier.colour = NA,  position = position_dodge(width = 0.8)) + 
+  geom_point(position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.8)) + 
+  labs(x = "Developmental Environment", y = "CTmax (degrees C)")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=20), legend.position = "bottom")+
+  scale_fill_manual(values = lineage_cols)+ 
+  guides(fill=guide_legend(title="Source Environment"))
+```
+
+
+
+```{r}
+
+
+ow_owa_CL <- as.data.frame(em_ow_owa[1])
+colnames(ow_owa_CL) <- c("treatment", "ancestral",  "CTmax", "SE", "df", "lcl","ucl")
+
+rxn_norms_OWA <- ggplot(ow_owa_CL, aes(x=treatment, y=CTmax, color=ancestral))+
+  geom_point()+
+  stat_summary(aes(group = ancestral), fun.y = mean, geom = "path")+
+  geom_errorbar(aes(ymin=CTmax-SE, ymax=CTmax+SE), width=.1) +
+  theme_bw()+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=20), legend.position = "bottom")+
+  scale_color_manual(values = lineage_cols)+
+  labs(y= "CTmax (degrees C)", x = "Developmental conditions")+ 
+  guides(color=guide_legend(title="Source Environment"))
+  
+  
+ rxn_norms_OWA 
+
+```
+# Bin Effects
+
+```{r}
+
+use_data <- bind_rows(lineages, use_am_oa, use_am_ow, use_ow_owa)
+
+```
+
+
+```{r}
+bins_lm <- function(df){
+  #leveneTest(ctmax~replicate_ID, data=df)
+  anova(lm(ctmax~replicate_ID, data=df))
+}
+
+bin_comparisons <- use_data %>% 
+  group_by(lineage, data_set) %>% 
+  nest() %>% 
+  mutate(results=map(data, bins_lm)) %>% 
+  mutate(p_value=(as.data.frame(results) %>% pull('Pr..F.'))[1]) 
+
+kable(bin_comparisons %>% dplyr::select(-data, -results))
+```
+
+
+# Analysis of all transplants with one model
+
+```{r, transplants_combo_dataframe}
+transplants <- bind_rows( use_am_oa, use_am_ow, use_ow_owa) %>% 
+  mutate(treatment_temp =ifelse(treatment %in% c("OW", "OWA"), "22", "18"),
+         treatment_acidif =ifelse(treatment %in% c("OA", "OWA"), "high", "ambiant"), 
+         assay = str_c(data_set, run, sep="-"))
+```
+
+This figure shows the raw data for all transplants combined
+
+```{r, model-for-paper}
+
+options(contrasts=c("contr.treatment","contr.poly"))
+#The default reference levels for contr.treatment are AM for lineage, 18 for temperature and ambiant pH. 
+
+transplants$treatment_temp <- as.factor(transplants$treatment_temp)
+transplants$treatment_acidif <- as.factor(transplants$treatment_acidif)
+transplantsancestral <- as.factor(transplants$ancestral)
+
+transplants_model <- lme4::lmer(ctmax~ancestral+treatment_temp+treatment_acidif+ancestral:treatment_temp + ancestral:treatment_acidif +  (1|assay), data=transplants)
+
+# transplants_model_2 <- lme4::lmer(ctmax~ancestral+treatment_temp+treatment_acidif +ancestral:treatment_temp +  (1|assay), data=transplants)
+
+#Assay is which CTmax run but coded so that each data set has a unique value for. E.g. AM-OW run 1 has no relationship to AM-OA run 1. 
+# 
+# summary(transplants_model_2)
+summary(transplants_model)
+car::Anova(transplants_model, type="III")
+
+emm_trans <- emmeans(transplants_model, pairwise~ancestral*treatment_temp*treatment_acidif)
+emm_trans_2 <- emmeans(transplants_model_2, pairwise~ancestral+treatment_temp+treatment_acidif +ancestral:treatment_temp)
+means_trans <- as.data.frame(emm_trans[1])
+means_trans_2 <- as.data.frame(emm_trans_2[1])
+means_trans
+transplant_letters <- multcomp::cld(emm_trans, Letters = c(LETTERS))
+
+contrasts_pH <- as.data.frame(emmeans(transplants_model, pairwise~treatment_acidif | ancestral)[2]) %>% mutate(contrasts.estimate = -1*contrasts.estimate)
+contrasts_temp <- as.data.frame(emmeans(transplants_model, pairwise~treatment_temp | ancestral)[2]) %>% drop_na() %>% mutate(contrasts.estimate = -1*contrasts.estimate)
+
+
+
+#Testing model assumptions
+#ranef(transplants_model)
+shapiro.test(residuals(transplants_model))
+leveneTest(ctmax~ancestral*treatment_temp*treatment_acidif, as.data.frame(transplants), center=mean)
+
+```
+
+
+
+# Figures for Publication
+
+The Y axis represents the difference in mean between the high and low treatment (e.g. for temperature the differences is CTmax at 22 - CTmax at 18. )
+
+
+```{r, plotting_contrasts, out.width='100%',  align='center', out.height='50%'}
+colnames(contrasts_pH) <- c("contrasts", "lineage", "difference",  "SE",  "df", "t.ratio", "p.value")
+colnames(contrasts_temp) <- c("contrasts", "lineage", "difference",  "SE",  "df", "t.ratio", "p.value")
+
+
+contrast_pH_plot <- ggplot(contrasts_pH, aes(x=lineage, y=difference))+
+  geom_errorbar(aes(ymin=difference-SE, ymax=difference+SE),width=.2)+
+  geom_point(size=3.5, aes(color=lineage, fill=lineage, shape=lineage))+
+  scale_color_manual(values = lineage_cols)+
+  scale_fill_manual(values = lineage_cols)+
+  scale_shape_manual(values = c(21, 22, 24, 25)) +
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  scale_y_continuous(limits = c(-.5, 1.1))+
+    labs(y= 'Estimated CTmax contrast in °C/n(High - Ambient  CO₂)', x = "Lineage", color='Lineage', shape= 'Lineage', fill= 'Lineage')+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(size = 20),
+    panel.border = element_rect(fill=NA, linewidth = 1, colour = "black"), legend.position = "bottom",
+    axis.ticks.x = element_blank(), axis.ticks.y = element_blank(), 
+        strip.text = element_blank())
+
+contrast_temp_plot <- ggplot(contrasts_temp, aes(x=lineage, y=difference))+
+  geom_errorbar(aes(ymin=difference-SE, ymax=difference+SE),width=.2)+
+  geom_point(size=3.5, aes(color=lineage, fill=lineage, shape=lineage))+
+  scale_color_manual(values = lineage_cols)+
+  scale_fill_manual(values = lineage_cols)+
+  scale_shape_manual(values = c(21, 24)) +
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  scale_y_continuous(limits = c(-.5, 1.1))+
+  labs(y= 'Estimated CTmax contrast in °C/n(High - Ambient Temperature)', x = "Lineage", color='Lineage', shape= 'Lineage', fill= 'Lineage')+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(size = 20),
+    panel.border = element_rect(fill=NA, linewidth = 1, colour = "black"), legend.position = "bottom",
+    axis.ticks.x = element_blank(), axis.ticks.y = element_blank(), 
+        strip.text = element_blank())
+
+combined_contrast_plot <- contrast_pH_plot + contrast_temp_plot + plot_layout(widths = c(2,1))
+combined_contrast_plot
+
+```
+    
+```{r, raw-rxnnorms-graph}
+
+transplants_raw_rxn_norms <- transplants %>% group_by(data_set, lineage) %>% mutate(mean_ctmax= mean(ctmax), SE=sd(ctmax)/sqrt(n())) %>% dplyr::select(treatment, ancestral, lineage, data_set, mean_ctmax, SE) %>% unique()
+transplants_raw_rxn_norms$data_set <- as.factor(transplants_raw_rxn_norms$data_set)
+transplants_raw_rxn_norms$ancestral <- as.factor(transplants_raw_rxn_norms$ancestral)
+
+transplants_raw_rxn_norms <- transplants_raw_rxn_norms %>% ungroup() %>% complete(data_set, ancestral)
+
+combined_raw_rxn_norm_plot <- ggplot(transplants_raw_rxn_norms %>%  filter(!is.na(mean_ctmax)) , aes(x=treatment, y=mean_ctmax))+
+  facet_wrap(~data_set, scales="free_x")+
+  geom_point(data=transplants, aes(x=treatment, y=ctmax, color=ancestral, shape=ancestral, fill=ancestral), position=position_dodge2(width=0.4), alpha=.3)+
+  stat_summary(aes(group = ancestral), fun.y = mean, geom = "path", position=position_dodge2(width=0.4))+
+  geom_errorbar(aes(ymin=mean_ctmax-SE, ymax=mean_ctmax+SE), 
+                position=position_dodge2(width=0.4), width=.4) +
+  theme_bw()+
+  geom_point(size=3.5, aes(color=ancestral, shape=ancestral, fill=ancestral), position=position_dodge2(width=0.4))+
+  scale_shape_manual(values = c(21, 22, 24, 25)) + 
+  scale_color_manual(values = lineage_cols)+
+  scale_fill_manual(values = lineage_cols)+
+  labs(y= 'CTmax (°C)', x = "Developmental Environment", color='Lineage', shape= 'Lineage', fill= 'Lineage') +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        text = element_text(size=20), legend.position = "bottom", 
+        panel.border = element_rect(linewidth = 1, colour = "black"),
+        axis.ticks.x = element_blank(), axis.ticks.y = element_blank(), 
+        strip.text = element_blank())
+
+combined_raw_rxn_norm_plot
+
+
+```
+
+
+```{r, dabestplot}
+
+#This code works only with version 0.3.0 of dabestr. The functionality to change plot colors is not present in the current version of dabestr. 
+
+
+mean_diff = lineages %>% 
+  dabest(lineage, ctmax, 
+         idx = c("AM", "OA", "OW", "OWA"),
+         paired = FALSE) %>% mean_diff()
+plot(mean_diff, 
+     rawplot.markersize = 3, 
+     palette = lineage_cols,
+     rawplot.ylabel = "CTmax (°C)")
+
+
+```
