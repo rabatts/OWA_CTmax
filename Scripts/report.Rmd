@@ -24,7 +24,7 @@ lineage_cols = c("AM" = "#0C7BDF",
                  "OW" = "#FFA602", 
                  "OWA" = "#D55D07")
 
-#this changes lab codes of HH,HA,AH,AA to OW, OWA, OA, AM for easy of understanding for the audience and parses the experimental conditions e.g. OW-AM-4 into its components 
+#this changes lab codes of HH,HA,AH,AA to OW, OWA, OA, AM  and parses the experimental condition coding (e.g. OW-AM-4) into its components 
 full_data <-  full_data %>%  
     mutate(lineage= str_replace_all(lineage,"HH", "OWA"),
         lineage= str_replace_all(lineage, "HA", "OW"),
@@ -35,16 +35,12 @@ full_data <-  full_data %>%
                             str_split_i(lineage, pattern = "-", i = 2),lineage),
          replicate_ID = paste(ancestral,replicate, sep="-")) 
 
-write.csv(x = full_data, file = paste(wd, "/Data/processed/full_data.csv", sep = ""),row.names = F)
-
-
 ```
 
 
 # Calculating average between vial difference
+This code generates the mean and standard deviation of the difference between vials with copepods and vials with sensors. 
 ```{r}
-
-
 adjusted_test_2 <- as.data.frame(data.frame(number = 1:100)) 
 
 #Getting values for test 2
@@ -80,14 +76,14 @@ for(j in 1:length(devices)){
     theme_bw()+
     geom_line()
 
-  
+
 mean_offset <- mean(adjusted_test_2$offset,na.rm = TRUE)  
 sd_offset <- sd(adjusted_test_2$offset,na.rm = TRUE)
 ```
 
 # Ramping Rate
 
-
+This code displays the temperature ramping rate during the CTmax assays. 
 ```{r ramp-rates, fig.height=4, fig.width=5, warning=FALSE, message=FALSE}
 ramp_record2 = ramp_record %>%
   group_by(run, minute_interval) %>%
@@ -355,7 +351,7 @@ ggsave("C:/Users/rowan/Documents/Research/OWA_CTmax_transplants/Outputs/Figures/
 
 
 # Transplant Sample Size
-## OA-AM Transplants 
+## OA-AM Transplant Sample Size 
 
 There were an average of 12.5 individuals per treatment. 
 ```{r, am_oa_assigment}
@@ -425,7 +421,7 @@ rxn_norms_OA
 
 ```
 
-## OW-AM Transplants
+## OW-AM Transplants Sample Size
 
 There were approximately 20 individuals per treatment. 
 
@@ -500,7 +496,7 @@ rxn_norms_OW
 ```
 
 
-## OWA-OW transplants 
+## OWA-OW transplants Sample Size 
 
 There were approximately 20 individuals per treatment. 
 ```{r}
@@ -515,33 +511,9 @@ Individuals from every replicate except AM-AM-4 and OA-OA-1 were represented.
 table(use_ow_owa$lineage, use_ow_owa$replicate)
 ```
 
-# Bin Effects
-
-```{r}
-
-use_data <- bind_rows(lineages, use_am_oa, use_am_ow, use_ow_owa)
-
-```
-
-
-```{r}
-bins_lm <- function(df){
-  #leveneTest(ctmax~replicate_ID, data=df)
-  anova(lm(ctmax~replicate_ID, data=df))
-}
-
-bin_comparisons <- use_data %>% 
-  group_by(lineage, data_set) %>% 
-  nest() %>% 
-  mutate(results=map(data, bins_lm)) %>% 
-  mutate(p_value=(as.data.frame(results) %>% pull('Pr..F.'))[1]) 
-
-kable(bin_comparisons %>% dplyr::select(-data, -results))
-```
-
-
 # Transplants Analysis
 
+A combined analysis is conducted on all transplant data. 
 ```{r, transplants_combo_dataframe}
 transplants <- bind_rows(use_am_oa, use_am_ow, use_ow_owa) %>% 
   mutate(treatment_temp =ifelse(treatment %in% c("OW", "OWA"), "22", "18"),
@@ -549,8 +521,7 @@ transplants <- bind_rows(use_am_oa, use_am_ow, use_ow_owa) %>%
          assay = str_c(data_set, run, sep="-"))
 ```
 
-This figure shows the raw data for all transplants combined
-
+Here, I run model selection using AIC scores. 
 ```{r, model-for-paper}
 #Assay is which CTmax run. It is coded so that each data set has a unique value for. E.g. AM-OW run 1 has no relationship to AM-OA run 1
 
@@ -575,10 +546,9 @@ transplants_model.5 <- lme4::lmer(ctmax~ancestral+treatment_temp+treatment_acidi
 AIC(transplants_model.1, transplants_model.2, transplants_model.3, transplants_model.4, transplants_model.5)
 ```
 
-
+Here I run the selected model with REML and test assumptions. I also run pairwise comparisons using emmeans. 
 ```{r, model-analysis-for-paper}
-
-transplants_model <- lme4::lmer(ctmax~ancestral+treatment_temp+treatment_acidif + ancestral:treatment_temp + (1|assay), REML = TRUE, data=transplants)
+transplants_model <- lme4::lmer(ctmax~ancestral + treatment_temp + treatment_acidif + ancestral:treatment_temp + (1|assay), REML = TRUE, data=transplants)
 
 summary(transplants_model)
 car::Anova(transplants_model, type="III")
@@ -621,8 +591,6 @@ shapiro.test(residuals(transplants_model))
 leveneTest(ctmax~ancestral*treatment_temp*treatment_acidif, as.data.frame(transplants), center=mean)
 
 ```
-
-
 
 # Figures for Publication
 

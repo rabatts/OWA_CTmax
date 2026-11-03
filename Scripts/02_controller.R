@@ -1,3 +1,4 @@
+#Libraries needed for Rmarkdown file
 library(rmarkdown)
 library(knitr)
 library(tidyverse)
@@ -9,10 +10,6 @@ library(car)
 library(purrr)
 library(patchwork)
 library(remotes)
-
-#install_version('dabestr', versions = "0.3.0", repos = "http://cran.us.r-project.org") #Installs correct dabestr version
-#use packageVersion("dabestr") to check if 0.3.0 is installed. You may need to first remove the new version of dabestr and restart r
-library(dabestr)
 
 wd <- "C:/Users/rowan/Documents/Research/Final_code_versons/OWA_CTmax_clean"
 setwd(wd)
